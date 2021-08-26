@@ -4,7 +4,7 @@ const { parse } = require('@asyncapi/parser')
 const { Collection, RequestAuth } = require('postman-collection')
 const { option: fakerOptions, resolve: fake } = require('json-schema-faker')
 
-const a2c = module.exports
+const a2p = module.exports
 
 fakerOptions({
   requiredOnly: false,
@@ -17,7 +17,7 @@ fakerOptions({
   useDefaultValue: true,
 })
 
-a2c.convert = async (asyncapiString, options = {}) => {
+a2p.convert = async (asyncapiString, options = {}) => {
   const doc = await parse(asyncapiString, options.parser)
   const serverNames = options.serverName ? [options.serverName] : doc.serverNames()
   const channelNames = doc.channelNames() || []
@@ -38,9 +38,9 @@ a2c.convert = async (asyncapiString, options = {}) => {
   return collection
 }
 
-a2c.convertFile = async (filePath, options = {}) => {
+a2p.convertFile = async (filePath, options = {}) => {
   const fileContent = await readFile(filePath, { encoding: 'utf-8' })
-  return a2c.convert(fileContent, options.parser)
+  return a2p.convert(fileContent, options.parser)
 }
 
 async function buildCollectionItems (doc, serverNames) {
