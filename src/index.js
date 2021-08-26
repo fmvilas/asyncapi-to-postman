@@ -1,7 +1,7 @@
 const { resolve } = require('path')
 const { readFile } = require('fs/promises')
 const { parse } = require('@asyncapi/parser')
-const { Collection } = require('postman-collection')
+const { Collection, RequestAuth } = require('postman-collection')
 const { option: fakerOptions, resolve: fake } = require('json-schema-faker')
 
 const a2c = module.exports
@@ -19,18 +19,21 @@ fakerOptions({
 
 a2c.convert = async (asyncapiString, options = {}) => {
   const doc = await parse(asyncapiString, options.parser)
-  const serverNames = doc.serverNames() || []
+  const serverNames = options.serverName ? [options.serverName] : doc.serverNames()
   const channelNames = doc.channelNames() || []
-
+  
   const collection = new Collection({
     info: {
       name: doc.info().title(),
       version: doc.info().version(),
       description: doc.info().description(),
     },
-    item: await buildCollectionItems(doc, serverNames[0]),
+    item: await buildCollectionItems(doc, serverNames),
     variable: await buildVariablesList(doc, serverNames, channelNames),
   })
+
+  const auth = new RequestAuth(await buildAuth(doc, serverNames))
+  if (auth) collection.auth = auth
   
   return collection
 }
@@ -40,43 +43,50 @@ a2c.convertFile = async (filePath, options = {}) => {
   return a2c.convert(fileContent, options.parser)
 }
 
-async function buildCollectionItems (doc, serverName) {
+async function buildCollectionItems (doc, serverNames) {
   const items = []
 
-  const promises = doc.channelNames().map(async channelName => {
-    const channel = doc.channel(channelName)
-    if (channel.hasPublish()) {
-      const publishOperation = channel.publish()
-      const message = publishOperation.message()
+  await Promise.all(
+    serverNames.map(async serverName => {
       const server = doc.server(serverName)
-      const serverUrl = server ? buildUrl(server.url(), channelName) : resolve('/', channelName)
 
-      const headers = message.headers() && message.headers().json() && message.headers().json().properties ? await fake(message.headers().json()) : undefined
-      const body = await fake(message.payload().json())
+      return Promise.all(
+        doc.channelNames().map(async channelName => {
+          const channel = doc.channel(channelName)
+          if (channel.hasPublish()) {
+            const publishOperation = channel.publish()
+            const message = publishOperation.message()
+            const serverUrl = server ? buildUrl(server.url(), channelName) : resolve('/', channelName)
 
-      items.push({
-        name: `Publish to ${channelName}`,
-        id: publishOperation.id() || `publish-to-${channelName}`,
-        request: {
-          url: serverUrl,
-          method: guessMethod(server, serverName),
-          body: { mode: 'raw', raw: body },
-          ...publishOperation.hasDescription() && {
-            description: buildMarkdownDescriptionObject(publishOperation.description()),
-          },
-          ...headers && { header: Object.keys(headers).map(
-            key => ({
-              key,
-              value: headers[key],
-              ...message.header(key).hasDescription() && buildMarkdownDescriptionObject(message.header(key).description()),
+            const headers = message.headers() && message.headers().json() && message.headers().json().properties ? await fake(message.headers().json()) : undefined
+            const body = await fake(message.payload().json())
+
+            items.push({
+              name: `Publish to ${channelName}`,
+              id: publishOperation.id() || `publish-to-${channelName}`,
+              request: {
+                url: serverUrl,
+                method: guessMethod(server, serverName),
+                body: { mode: 'raw', raw: body },
+                ...publishOperation.hasDescription() && {
+                  description: buildMarkdownDescriptionObject(publishOperation.description()),
+                },
+                ...headers && {
+                  header: Object.keys(headers).map(
+                    key => ({
+                      key,
+                      value: headers[key],
+                      ...message.header(key).hasDescription() && buildMarkdownDescriptionObject(message.header(key).description()),
+                    })
+                  )
+                },
+              },
             })
-          ) },
-        },
-      })
-    }
-  })
-
-  await Promise.all(promises)
+          }
+        })
+      )
+    })
+  )
 
   return items
 }
@@ -147,4 +157,39 @@ async function buildVariablesList (doc, serverNames, channelNames) {
   }))
 
   return variables
+}
+
+async function buildAuth (doc, serverNames) {
+  if (!serverNames.length || !doc.server(serverNames[0]).security()) return
+
+  const securityScheme = doc.components().securityScheme(
+    Object.keys(doc.server(serverNames[0]).security()[0].json())[0]
+  )
+
+  let type
+  switch (securityScheme.type()) {
+    case 'httpApiKey':
+      type = 'apikey'
+      break
+    case 'userPassword':
+      type = 'basic'
+      break
+    case 'oauth2':
+      type = 'oauth2'
+      break
+    case 'http':
+      if (securityScheme.scheme() === 'bearer') type = 'bearer'
+      break
+    default:
+  }
+
+  if (!type) return
+
+  return {
+    type,
+    [type]: [{
+      key: securityScheme.name() || 'token',
+      value: await fake({ type: 'string' }),
+    }],
+  }
 }

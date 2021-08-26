@@ -41,6 +41,8 @@ servers:
       port:
         enum: ['3000', '5000']
         description: The port where server should be bound.
+    security:
+      - api_key: []
 
 channels:
   test/{aTestParameter}:
@@ -56,14 +58,20 @@ channels:
           additionalProperties: false
           properties:
             testProp:
-              type: string`
+              type: string
+components:
+  securitySchemes:
+    api_key:
+      type: httpApiKey
+      name: testApiKey
+      in: header`
 
 test('converts a basic YAML string', async () => {
   const collection = await convert(basicYAML)
   expect(collection.name).toBe('Basic YAML')
   expect(collection.version.string).toBe('1.0.0')
   expect(collection.description.content).toBe('A basic YAML AsyncAPI file')
-  expect(collection.items.toJSON()).toEqual([
+  expect(collection.items.toJSON()).toStrictEqual([
     {
       event: [],
       id: 'publish-to-test',
@@ -87,6 +95,7 @@ test('converts a basic YAML string', async () => {
       },
       response: [],
     }])
+  expect(collection.auth.toJSON()).toStrictEqual({})
 })
 
 test('converts a sample YAML string', async () => {
@@ -94,7 +103,7 @@ test('converts a sample YAML string', async () => {
   expect(collection.name).toBe('Example YAML')
   expect(collection.version.string).toBe('1.0.0')
   expect(collection.description.content).toBe('An example YAML AsyncAPI file')
-  expect(collection.items.toJSON()).toEqual([
+  expect(collection.items.toJSON()).toStrictEqual([
     {
       event: [],
       id: 'publish-to-test/{aTestParameter}',
@@ -118,7 +127,7 @@ test('converts a sample YAML string', async () => {
       },
       response: [],
     }])
-  expect(collection.variables.toJSON()).toEqual([{
+  expect(collection.variables.toJSON()).toStrictEqual([{
     description: {
       content: 'The port where server should be bound.',
       type: 'text/markdown',
@@ -139,4 +148,12 @@ test('converts a sample YAML string', async () => {
     type: 'any',
     value: 'Ut velit',
   }])
+  expect(collection.auth.toJSON()).toStrictEqual({
+    type: 'apikey',
+    apikey: [{
+      key: 'testApiKey',
+      value: 'Ut velit',
+      type: 'any',
+    }],
+  })
 })
